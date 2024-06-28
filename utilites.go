@@ -43,22 +43,21 @@ func extractLinks(node *html.Node) []string {
 			}
 		}
 	}
-
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		links = append(links, extractLinks(child)...)
 	}
-
 	return links
 }
 
-func readUrl() (string, string) {
-	fmt.Print("Enter url: ")
+func readUrl() (string, error) {
+	fmt.Print("Enter url to format https://www.google.com =>>")
 	reader := bufio.NewReader(os.Stdin)
 	// ReadString will block until the delimiter is entered
 	url, err := reader.ReadString('\n')
 	if err != nil {
-		fmt.Println("An error occured while reading input. Please try again", err)
-		return nil, err
+		errStr := "An error occured while reading input. Please try again"
+		fmt.Println(errStr, err)
+		return errStr, err
 	} else {
 		// remove the delimeter from the string
 		url = strings.TrimSuffix(url, "\n")
