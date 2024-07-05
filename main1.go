@@ -2,35 +2,45 @@ package main
 
 import (
 	"fmt"
-	"github.com/gocolly/colly"
-	"github.com/xuri/excelize/v2"
 	"log"
 	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/gocolly/colly"
+	"github.com/xuri/excelize/v2"
 )
 
 type Link struct {
-	Id       int
-	LinkPath string
+	Id  int
+	Url string
 }
 
-var idx = 0
-var links []Link
+// WebScrap выполняет веб-скрапинг и передает результаты в канал
+func WebScrap(url string, ch chan<- []Link, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-// WebScrap =============================================================================================
-func WebScrap(url string) {
-	newUrl := url[8:]
+	var links []Link
+	var idx int
+
+	// Извлекаем домен из URL
+	newUrl := url[8:] // Возможно, лучше использовать функцию для извлечения домена
+
+	// Определяем домен
+	domainParts := strings.Split(newUrl, "/")
+	domain := domainParts[0]
+
 	c := colly.NewCollector(
-		colly.AllowedDomains(newUrl)) //"technocom.site123.me"))
+		colly.AllowedDomains(domain),
+	)
 
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		e.Request.Visit(e.Attr("href"))
-		//fmt.Printf("Link found: %q -> %s\n", e.Text, link)
 	})
 
 	c.OnRequest(func(r *colly.Request) {
 		if r.URL.String() != "" {
 			links = append(links, Link{idx + 1, r.URL.String()})
-			fmt.Println(links[idx])
 			idx++
 		}
 	})
@@ -39,50 +49,68 @@ func WebScrap(url string) {
 		log.Println("error:", r.StatusCode, err)
 	})
 
-	c.OnResponse(func(r *colly.Response) {
-	})
-	c.Visit(url) //"https://technocom.site123.me/")
+	// Асинхронный визит
+	c.Visit(url)
+
+	// Передаем результаты в канал
+	ch <- links
 }
 
-// -----------------------------------------------------------------------------------------
-func SaveToFile(filename string, InternalLinks []Link) {
+// SaveToFile сохраняет данные в файл Excel
+func SaveToFile(filename string, internalLinks []Link) {
 	f := excelize.NewFile()
 	defer func() {
 		if err := f.Close(); err != nil {
 			fmt.Println(err)
 		}
 	}()
-	for i, row := range InternalLinks {
+
+	for i, row := range internalLinks {
 		f.SetCellValue("Sheet1", fmt.Sprintf("A%v", i+1), strconv.Itoa(row.Id))
-		f.SetCellValue("Sheet1", fmt.Sprintf("B%v", i+1), row.LinkPath)
-		idx++
+		f.SetCellValue("Sheet1", fmt.Sprintf("B%v", i+1), row.Url)
 	}
+
 	if err := f.SaveAs(filename); err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println("Data saved to file...")
 	}
-	InternalLinks = nil
 }
 
-// -----------------------------------------------------------------------------------------
-func (l Link) String() string {
-	return fmt.Sprintf("{Id:%d, Link:%s}", l.Id, l.LinkPath)
+func main() {
+	fmt.Println("Идет загрузка...")
+	// Создаем канал для передачи данных
+	ch := make(chan []Link)
+
+	// Создаем WaitGroup для ожидания завершения горутины
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// Запускаем веб-скрапинг в горутине
+	go WebScrap("https://technocom.site123.me", ch, &wg)
+
+	// Ожидаем завершения горутины и закрытия канала
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	// Ожидаем данные из канала
+	var links []Link
+	for l := range ch {
+		links = append(links, l...)
+	}
+
+	// Сохраняем данные в файл
+	SaveToFile("data.xlsx", links)
+
+	// Печатаем полученные ссылки
+	printLinks(links)
 }
 
-// -----------------------------------------------------------------------------------------
+// Функция для печати ссылок
 func printLinks(links []Link) {
 	for _, link := range links {
-		fmt.Printf("%d => %s\n", link.Id, link.LinkPath)
+		fmt.Printf("%d => %s\n", link.Id, link.Url)
 	}
-}
-
-// -----------------------------------------------------------------------------------------
-func main() {
-	//=====================================================================================
-	fmt.Println("Идет загрузка...")
-	WebScrap("https://technocom.site123.me")
-	SaveToFile("data.xlsx", links)
-	//=====================================================================================
-
 }
